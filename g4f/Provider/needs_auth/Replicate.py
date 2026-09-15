@@ -7,14 +7,14 @@ from ...requests import raise_for_status
 from ...requests.aiohttp import StreamSession
 from ...errors import ResponseError, MissingAuthError
 
+
 class Replicate(AsyncGeneratorProvider, ProviderModelMixin):
     url = "https://replicate.com"
+    login_url = "https://replicate.com/account/api-tokens"
     working = True
     needs_auth = True
     default_model = "meta/meta-llama-3-70b-instruct"
-    model_aliases = {
-        "meta-llama/Meta-Llama-3-70B-Instruct": default_model
-    }
+    models = [default_model]
 
     @classmethod
     async def create_async_generator(
@@ -25,29 +25,27 @@ class Replicate(AsyncGeneratorProvider, ProviderModelMixin):
         proxy: str = None,
         timeout: int = 180,
         system_prompt: str = None,
-        max_new_tokens: int = None,
+        max_tokens: int = None,
         temperature: float = None,
         top_p: float = None,
         top_k: float = None,
         stop: list = None,
-        extra_data: dict = {},
+        extra_body: dict = {},
         headers: dict = {
             "accept": "application/json",
         },
-        **kwargs
+        **kwargs,
     ) -> AsyncResult:
         model = cls.get_model(model)
         if cls.needs_auth and api_key is None:
             raise MissingAuthError("api_key is missing")
         if api_key is not None:
             headers["Authorization"] = f"Bearer {api_key}"
-            api_base = "https://api.replicate.com/v1/models/"
+            base_url = "https://api.replicate.com/v1/models/"
         else:
-            api_base = "https://replicate.com/api/models/"
+            base_url = "https://replicate.com/api/models/"
         async with StreamSession(
-            proxy=proxy,
-            headers=headers,
-            timeout=timeout
+            proxy=proxy, headers=headers, timeout=timeout
         ) as session:
             data = {
                 "stream": True,
@@ -55,23 +53,25 @@ class Replicate(AsyncGeneratorProvider, ProviderModelMixin):
                     "prompt": format_prompt(messages),
                     **filter_none(
                         system_prompt=system_prompt,
-                        max_new_tokens=max_new_tokens,
+                        max_new_tokens=max_tokens,
                         temperature=temperature,
                         top_p=top_p,
                         top_k=top_k,
-                        stop_sequences=",".join(stop) if stop else None
+                        stop_sequences=",".join(stop) if stop else None,
                     ),
-                    **extra_data
+                    **extra_body,
                 },
             }
-            url = f"{api_base.rstrip('/')}/{model}/predictions"
+            url = f"{base_url.rstrip('/')}/{model}/predictions"
             async with session.post(url, json=data) as response:
                 message = "Model not found" if response.status == 404 else None
                 await raise_for_status(response, message)
                 result = await response.json()
                 if "id" not in result:
                     raise ResponseError(f"Invalid response: {result}")
-                async with session.get(result["urls"]["stream"], headers={"Accept": "text/event-stream"}) as response:
+                async with session.get(
+                    result["urls"]["stream"], headers={"Accept": "text/event-stream"}
+                ) as response:
                     await raise_for_status(response)
                     event = None
                     async for line in response.iter_lines():

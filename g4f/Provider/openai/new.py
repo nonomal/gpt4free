@@ -8,14 +8,12 @@ import uuid
 from collections import OrderedDict, defaultdict
 from typing import Any, Callable, Dict, List
 
-from datetime import (
-    datetime, 
-    timedelta, 
-    timezone
-)
+from datetime import datetime, timedelta, timezone
 
-cores       = [16, 24, 32]
-screens     = [3000, 4000, 6000]
+from .har_file import RequestConfig
+
+cores = [16, 24, 32]
+screens = [3000, 4000, 6000]
 maxAttempts = 500000
 
 navigator_keys = [
@@ -118,10 +116,10 @@ navigator_keys = [
     "webdriver−false",
     "getInstalledRelatedApps−function getInstalledRelatedApps() { [native code] }",
     "getInstalledRelatedApps−function getInstalledRelatedApps() { [native code] }",
-    "bluetooth−[object Bluetooth]"
+    "bluetooth−[object Bluetooth]",
 ]
 
-window_keys   = [
+window_keys = [
     "0",
     "window",
     "self",
@@ -366,37 +364,44 @@ window_keys   = [
     "__STATSIG_SDK__",
     "__STATSIG_JS_SDK__",
     "__STATSIG_RERENDER_OVERRIDE__",
-    "_oaiHandleSessionExpired"
+    "_oaiHandleSessionExpired",
 ]
+
 
 def get_parse_time():
     now = datetime.now(timezone(timedelta(hours=-5)))
-    return now.strftime("%a %b %d %Y %H:%M:%S") + " GMT+0200 (Central European Summer Time)"
+    return (
+        now.strftime("%a %b %d %Y %H:%M:%S")
+        + " GMT+0200 (Central European Summer Time)"
+    )
+
 
 def get_config(user_agent):
-
-    core   = random.choice(cores)
+    core = random.choice(cores)
     screen = random.choice(screens)
-    
+
     # partially hardcoded config
     config = [
         core + screen,
         get_parse_time(),
-        4294705152,
+        None,
         random.random(),
         user_agent,
         None,
-        "remix-prod-15f1ec0f78ad898b9606a88d384ef76345b82b82", #document.documentElement.getAttribute("data-build"),
+        RequestConfig.data_build,  # document.documentElement.getAttribute("data-build"),
         "en-US",
         "en-US,es-US,en,es",
         0,
         random.choice(navigator_keys),
-        'location',
+        "location",
         random.choice(window_keys),
         time.perf_counter(),
         str(uuid.uuid4()),
+        "",
+        8,
+        int(time.time()),
     ]
-    
+
     return config
 
 
@@ -408,45 +413,54 @@ def get_answer_token(seed, diff, config):
     else:
         raise Exception("Failed to solve 'gAAAAAB' challenge")
 
+
 def generate_answer(seed, diff, config):
-    diff_len            = len(diff)
-    seed_encoded        = seed.encode()
-    p1 = (json.dumps(config[:3], separators=(',', ':'), ensure_ascii=False)[:-1] + ',').encode()
-    p2 = (',' + json.dumps(config[4:9], separators=(',', ':'), ensure_ascii=False)[1:-1] + ',').encode()
-    p3 = (',' + json.dumps(config[10:], separators=(',', ':'), ensure_ascii=False)[1:]).encode()
+    diff_len = len(diff)
+    seed_encoded = seed.encode()
+    p1 = (
+        json.dumps(config[:3], separators=(",", ":"), ensure_ascii=False)[:-1] + ","
+    ).encode()
+    p2 = (
+        ","
+        + json.dumps(config[4:9], separators=(",", ":"), ensure_ascii=False)[1:-1]
+        + ","
+    ).encode()
+    p3 = (
+        "," + json.dumps(config[10:], separators=(",", ":"), ensure_ascii=False)[1:]
+    ).encode()
 
     target_diff = bytes.fromhex(diff)
 
     for i in range(maxAttempts):
-        d1   = str(i).encode()
-        d2   = str(i >> 1).encode()
-        
-        string = (
-            p1 
-            + d1 
-            + p2 
-            + d2 
-            + p3
-        )
-        
+        d1 = str(i).encode()
+        d2 = str(i >> 1).encode()
+
+        string = p1 + d1 + p2 + d2 + p3
+
         base_encode = base64.b64encode(string)
-        hash_value  = hashlib.new("sha3_512", seed_encoded + base_encode).digest()
-        
+        hash_value = hashlib.new("sha3_512", seed_encoded + base_encode).digest()
+
         if hash_value[:diff_len] <= target_diff:
             return base_encode.decode(), True
 
-    return 'wQ8Lk5FbGpA2NcR9dShT6gYjU7VxZ4D' + base64.b64encode(f'"{seed}"'.encode()).decode(), False
+    return (
+        "wQ8Lk5FbGpA2NcR9dShT6gYjU7VxZ4D"
+        + base64.b64encode(f'"{seed}"'.encode()).decode(),
+        False,
+    )
+
 
 def get_requirements_token(config):
     require, solved = generate_answer(format(random.random()), "0fffff", config)
 
     if solved:
-        return 'gAAAAAC' + require
+        return "gAAAAAC" + require
     else:
         raise Exception("Failed to solve 'gAAAAAC' challenge")
-    
-    
+
+
 ### processing turnstile token
+
 
 class OrderedMap:
     def __init__(self):
@@ -463,15 +477,15 @@ class OrderedMap:
 
 
 TurnTokenList = List[List[Any]]
-FloatMap      = Dict[float, Any]
-StringMap     = Dict[str, Any]
-FuncType      = Callable[..., Any]
+FloatMap = Dict[float, Any]
+StringMap = Dict[str, Any]
+FuncType = Callable[..., Any]
 
 start_time = time.time()
 
+
 def get_turnstile_token(dx: str, p: str) -> str:
     decoded_bytes = base64.b64decode(dx)
-    # print(decoded_bytes.decode())
     return process_turnstile_token(decoded_bytes.decode(), p)
 
 
@@ -709,8 +723,8 @@ def process_turnstile(dx: str, p: str) -> str:
         nonlocal res
         res = base64.b64encode(e.encode()).decode()
 
-    process_map[3]  = func_3
-    process_map[9]  = token_list
+    process_map[3] = func_3
+    process_map[9] = token_list
     process_map[16] = p
 
     for token in token_list:
